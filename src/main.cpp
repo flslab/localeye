@@ -5,6 +5,9 @@
 #include <cmath>
 #include <array>
 #include <libcamera/libcamera.h>
+#include <libcamera/formats.h>
+#include <libcamera/controls.h>
+#include <libcamera/camera_manager.h>
 
 // #include <Eigen/Dense>  // Using Eigen library for matrix/vector operations
 
