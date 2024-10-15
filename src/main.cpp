@@ -4,7 +4,7 @@
 #include <vector>
 #include <cmath>
 #include <array>
-#include <Eigen/Dense>  // Using Eigen library for matrix/vector operations
+// #include <Eigen/Dense>  // Using Eigen library for matrix/vector operations
 
 
 using namespace cv;
@@ -155,31 +155,31 @@ std::array<double, 3> paramEllipse2implSphere(double a, double b, double ex, dou
 }
 
 
-std::array<double, 3> paramEllipse2implSphereEigen(double a, double b, double ex, double ey, double theta, double r) {
-    // Define the transformation matrix T
-    Eigen::Matrix3d T;
-    T << a * std::cos(theta), -b * std::sin(theta), ex,
-         a * std::sin(theta),  b * std::cos(theta), ey,
-         0,                   0,                   1;
-
-    // Get the unit vectors directed to the major ellipse axis ending points
-    Eigen::Vector3d a1 = T * Eigen::Vector3d(-1, 0, 1);
-    Eigen::Vector3d a2 = T * Eigen::Vector3d(1, 0, 1);
-
-    // Normalize vectors a1 and a2
-    Eigen::Vector3d q_a1 = a1.normalized();
-    Eigen::Vector3d q_a2 = a2.normalized();
-
-    // Angle bisector
-    Eigen::Vector3d w = (q_a2 + q_a1).normalized();
-
-    // Cone angle and direction
-    double cos2alpha = q_a1.dot(q_a2);
-    double d = std::sqrt(2) * r / std::sqrt(1 - cos2alpha);
-
-    Eigen::Vector3d S = d * w;
-    return {S.x(), S.y(), S.z()};
-}
+// std::array<double, 3> paramEllipse2implSphereEigen(double a, double b, double ex, double ey, double theta, double r) {
+//     // Define the transformation matrix T
+//     Eigen::Matrix3d T;
+//     T << a * std::cos(theta), -b * std::sin(theta), ex,
+//          a * std::sin(theta),  b * std::cos(theta), ey,
+//          0,                   0,                   1;
+//
+//     // Get the unit vectors directed to the major ellipse axis ending points
+//     Eigen::Vector3d a1 = T * Eigen::Vector3d(-1, 0, 1);
+//     Eigen::Vector3d a2 = T * Eigen::Vector3d(1, 0, 1);
+//
+//     // Normalize vectors a1 and a2
+//     Eigen::Vector3d q_a1 = a1.normalized();
+//     Eigen::Vector3d q_a2 = a2.normalized();
+//
+//     // Angle bisector
+//     Eigen::Vector3d w = (q_a2 + q_a1).normalized();
+//
+//     // Cone angle and direction
+//     double cos2alpha = q_a1.dot(q_a2);
+//     double d = std::sqrt(2) * r / std::sqrt(1 - cos2alpha);
+//
+//     Eigen::Vector3d S = d * w;
+//     return {S.x(), S.y(), S.z()};
+// }
 
 
 int main(int argc, char **argv) {
@@ -229,7 +229,7 @@ int main(int argc, char **argv) {
 
         double r = 24;
 
-        array<double, 3> sphere_center = paramEllipse2implSphereEigen(ellipse.axes.width, ellipse.axes.height,
+        array<double, 3> sphere_center = paramEllipse2implSphere(ellipse.axes.width, ellipse.axes.height,
                                                                  ellipse.center.x, ellipse.center.y, ellipse.theta, r);
         cout << "Sphere center: [" << sphere_center[0] << ", "
                 << sphere_center[1] << ", " << sphere_center[2] << "]" << endl;
