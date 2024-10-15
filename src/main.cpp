@@ -4,11 +4,15 @@
 #include <vector>
 #include <cmath>
 #include <array>
+#include <libcamera/libcamera.h>
+
 // #include <Eigen/Dense>  // Using Eigen library for matrix/vector operations
 
 
 using namespace cv;
 using namespace std;
+using namespace libcamera;
+
 
 struct ImplicitEllipse {
     double A, B, C, D, E, F;
@@ -183,68 +187,163 @@ std::array<double, 3> paramEllipse2implSphere(double a, double b, double ex, dou
 
 
 int main(int argc, char **argv) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <input_image>" << std::endl;
+    // if (argc != 2) {
+    //     std::cerr << "Usage: " << argv[0] << " <input_image>" << std::endl;
+    //     return -1;
+    // }
+
+    // Initialize libcamera
+    CameraManager manager;
+    if (manager.start() != 0) {
+        cerr << "Error: Camera manager could not start!" << endl;
         return -1;
     }
+
+    // Get the camera
+    shared_ptr<Camera> camera = manager.get("0");
+    if (!camera) {
+        cerr << "Error: No camera found!" << endl;
+        return -1;
+    }
+
+    // Configure the camera
+    unique_ptr<CameraConfiguration> config = camera->generateConfiguration({ StreamRole::Viewfinder });
+    if (!config) {
+        cerr << "Error: Failed to generate camera configuration!" << endl;
+        return -1;
+    }
+
+    // Set the resolution
+    config->at(0).pixelFormat = formats::YUV420;
+    config->at(0).size.width = 1280;
+    config->at(0).size.height = 720;
+
+    // Apply the configuration and allocate buffers
+    if (camera->configure(config.get()) != 0) {
+        cerr << "Error: Failed to configure the camera!" << endl;
+        return -1;
+    }
+
+    // Allocate buffer for frames
+    FrameBufferAllocator allocator(camera);
+    for (const StreamConfiguration &cfg : *config) {
+        allocator.allocate(cfg.stream());
+    }
+
+    // Start the camera
+    if (camera->start() != 0) {
+        cerr << "Error: Failed to start the camera!" << endl;
+        return -1;
+    }
+
+    // Main loop to capture frames and detect LED flashes
+    int threshold_value = 200; // Adjust based on lighting
+    int frame_counter = 0;
+
+    while (true) {
+        // Capture a frame
+        FrameBuffer *buffer = allocator.getFreeBuffer();
+        if (!buffer) {
+            cerr << "Error: No free buffer available!" << endl;
+            break;
+        }
+
+        if (camera->queueBuffer(buffer) != 0) {
+            cerr << "Error: Failed to queue the buffer!" << endl;
+            break;
+        }
+
+        // Get frame data and process it
+        Mat frame(Size(1280, 720), CV_8UC1, buffer->planes()[0].mem);
+
+        // Initialize EDLib Circle and Ellipse detector
+        EDCircles circleDetector(frame);
+
+        // Detect circles and ellipses
+        std::vector<mCircle> circles = circleDetector.getCircles();
+        std::vector<mEllipse> ellipses = circleDetector.getEllipses();
+
+        // Draw and print detected circles
+        for (size_t i = 0; i < circles.size(); ++i) {
+            const auto &circle = circles[i];
+            cv::circle(frame, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
+
+            // Print circle parameters
+            std::cout << "Circle " << i + 1 << ": Center = (" << circle.center.x << ", " << circle.center.y
+                    << "), Radius = " << circle.r << std::endl;
+        }
+
+        // Draw and print detected ellipses
+        for (size_t i = 0; i < ellipses.size(); ++i) {
+            const auto &ellipse = ellipses[i];
+            cv::ellipse(frame, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
+                        cv::Scalar(255, 0, 0), 2); // Blue ellipse
+
+            // Print ellipse parameters
+            cout << "Ellipse " << i + 1 << ": Center = (" << ellipse.center.x << ", " << ellipse.center.y
+                    << "), Axes = (" << ellipse.axes.width << ", " << ellipse.axes.height
+                    << "), Orientation = " << ellipse.theta << " radians" << endl;
+
+            double r = 24;
+
+            array<double, 3> sphere_center = paramEllipse2implSphere(ellipse.axes.width, ellipse.axes.height,
+                                                                     ellipse.center.x, ellipse.center.y, ellipse.theta, r);
+            cout << "Sphere center: [" << sphere_center[0] << ", "
+                    << sphere_center[1] << ", " << sphere_center[2] << "]" << endl;
+            // Convert the ellipse to implicit form
+            // ImplicitEllipse implicit = ellipseToImplicit(ellipse);
+
+            // std::cout << "Implicit Ellipse: " << implicit.A << ", " << implicit.B << ", " << implicit.C << ", " << implicit.D << ", " << implicit.E << ", " << implicit.F << std::endl;
+        }
+
+        // Display result
+        // cv::imshow("Detected Circles and Ellipses", displayImage);
+        // cv::waitKey(0); // Wait for a key press before closing
+
+        // Optionally save the output image
+        // cv::imwrite("output.png", displayImage);
+
+        // Define a Region of Interest (ROI) where the LED is located
+        Rect roi(100, 100, 100, 100); // Adjust as needed
+        Mat roi_gray = frame(roi);
+
+        // Calculate the average brightness in the ROI
+        Scalar mean_brightness = mean(roi_gray);
+        double brightness = mean_brightness[0];
+
+        // Detect whether the LED is ON or OFF based on brightness
+        if (brightness > threshold_value) {
+            cout << "Frame " << frame_counter << ": LED ON - binary 1" << endl;
+        } else {
+            cout << "Frame " << frame_counter << ": LED OFF - binary 0" << endl;
+        }
+
+        // Show the frame with the ROI for debugging (optional)
+        rectangle(frame, roi, Scalar(0, 255, 0), 2);
+        imshow("LED Detection", frame);
+
+        // Exit the loop if a key is pressed
+        if (waitKey(30) >= 0) break;
+
+        frame_counter++;
+    }
+
+    // Stop the camera and release resources
+    camera->stop();
+    manager.stop();
 
     // Load input image
-    cv::Mat image = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
-    if (image.empty()) {
-        std::cerr << "Could not load image: " << argv[1] << std::endl;
-        return -1;
-    }
+    // cv::Mat image = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
+    // if (image.empty()) {
+    //     std::cerr << "Could not load image: " << argv[1] << std::endl;
+    //     return -1;
+    // }
 
     // Convert grayscale to BGR for displaying color circles and ellipses
-    cv::Mat displayImage;
-    cv::cvtColor(image, displayImage, cv::COLOR_GRAY2BGR);
+    // cv::Mat displayImage;
+    // cv::cvtColor(image, displayImage, cv::COLOR_GRAY2BGR);
 
-    // Initialize EDLib Circle and Ellipse detector
-    EDCircles circleDetector(image);
 
-    // Detect circles and ellipses
-    std::vector<mCircle> circles = circleDetector.getCircles();
-    std::vector<mEllipse> ellipses = circleDetector.getEllipses();
-
-    // Draw and print detected circles
-    for (size_t i = 0; i < circles.size(); ++i) {
-        const auto &circle = circles[i];
-        cv::circle(displayImage, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
-
-        // Print circle parameters
-        std::cout << "Circle " << i + 1 << ": Center = (" << circle.center.x << ", " << circle.center.y
-                << "), Radius = " << circle.r << std::endl;
-    }
-
-    // Draw and print detected ellipses
-    for (size_t i = 0; i < ellipses.size(); ++i) {
-        const auto &ellipse = ellipses[i];
-        cv::ellipse(displayImage, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
-                    cv::Scalar(255, 0, 0), 2); // Blue ellipse
-
-        // Print ellipse parameters
-        cout << "Ellipse " << i + 1 << ": Center = (" << ellipse.center.x << ", " << ellipse.center.y
-                << "), Axes = (" << ellipse.axes.width << ", " << ellipse.axes.height
-                << "), Orientation = " << ellipse.theta << " radians" << endl;
-
-        double r = 24;
-
-        array<double, 3> sphere_center = paramEllipse2implSphere(ellipse.axes.width, ellipse.axes.height,
-                                                                 ellipse.center.x, ellipse.center.y, ellipse.theta, r);
-        cout << "Sphere center: [" << sphere_center[0] << ", "
-                << sphere_center[1] << ", " << sphere_center[2] << "]" << endl;
-        // Convert the ellipse to implicit form
-        // ImplicitEllipse implicit = ellipseToImplicit(ellipse);
-
-        // std::cout << "Implicit Ellipse: " << implicit.A << ", " << implicit.B << ", " << implicit.C << ", " << implicit.D << ", " << implicit.E << ", " << implicit.F << std::endl;
-    }
-
-    // Display result
-    cv::imshow("Detected Circles and Ellipses", displayImage);
-    cv::waitKey(0); // Wait for a key press before closing
-
-    // Optionally save the output image
-    cv::imwrite("output.png", displayImage);
 
     return 0;
 }
