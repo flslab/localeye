@@ -15,7 +15,7 @@ find_package(OpenCV REQUIRED)
 add_subdirectory(libs/ED_Lib)
 
 # Find Eigen (assuming it's in a folder like libs/Eigen)
-find_package(Eigen3 3.3 REQUIRED NO_MODULE)
+#find_package(Eigen3 3.3 REQUIRED NO_MODULE)
 
 # Include directories for OpenCV, ED_Lib, and Eigen ${EIGEN3_INCLUDE_DIR}
 include_directories(${OpenCV_INCLUDE_DIRS} libs/ED_Lib)
