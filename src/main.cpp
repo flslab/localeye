@@ -262,7 +262,7 @@ int main(int argc, char **argv) {
             Mat im(height, width, CV_8UC3, frameData.imageData, stride);
             Mat frame(height, width, CV_8UC1, frameData.imageData, stride);
 
-            cv::circle(im, cv::Point(200, 200), static_cast<int>(40), cv::Scalar(0, 255, 0), 2); // Green circle
+            // cv::circle(im, cv::Point(200, 200), static_cast<int>(40), cv::Scalar(0, 255, 0), 2); // Green circle
 
             // Detect ellipses
             // Initialize EDLib Circle and Ellipse detector
