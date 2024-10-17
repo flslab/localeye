@@ -25,6 +25,6 @@ add_library(LibCamera STATIC
         LibCamera.cpp
         LibCamera.cpp)
 
-add_executable(libcamera-demo LibCamera.cpp)
+add_executable(libcamera-demo main.cpp LibCamera.cpp)
 
 target_link_libraries(libcamera-demo "${LIBCAMERA_LIBRARIES}" ${OpenCV_LIBS})
