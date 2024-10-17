@@ -223,12 +223,12 @@ int main(int argc, char **argv) {
     float lens_position = 100;
     float focus_step = 50;
     LibCamera cam;
-    uint32_t width = 1920;
-    uint32_t height = 1080;
+    uint32_t width = 1280;
+    uint32_t height = 720;
     uint32_t stride;
     char key;
-    int window_width = 1920;
-    int window_height = 1080;
+    int window_width = 1280;
+    int window_height = 720;
 
     if (width > window_width)
     {
@@ -243,11 +243,11 @@ int main(int argc, char **argv) {
     // Set frame rate
 	controls_.set(controls::FrameDurationLimits, libcamera::Span<const int64_t, 2>({ frame_time, frame_time }));
     // Adjust the brightness of the output images, in the range -1.0 to 1.0
-    controls_.set(controls::Brightness, 0.5);
+    // controls_.set(controls::Brightness, 0.5);
     // Adjust the contrast of the output image, where 1.0 = normal contrast
-    controls_.set(controls::Contrast, 1.5);
+    // controls_.set(controls::Contrast, 1.5);
     // Set the exposure time
-    controls_.set(controls::ExposureTime, 20000);
+    // controls_.set(controls::ExposureTime, 20000);
     cam.set(controls_);
     if (!ret) {
         bool flag;
@@ -258,7 +258,52 @@ int main(int argc, char **argv) {
             flag = cam.readFrame(&frameData);
             if (!flag)
                 continue;
+            // CV_8UC3 for color CV_8UC1 for grascale image
             Mat im(height, width, CV_8UC3, frameData.imageData, stride);
+            Mat frame(height, width, CV_8UC1, frameData.imageData, stride);
+
+
+            // Detect ellipses
+            // Initialize EDLib Circle and Ellipse detector
+            EDCircles circleDetector(frame);
+
+            // Detect circles and ellipses
+            std::vector<mCircle> circles = circleDetector.getCircles();
+            std::vector<mEllipse> ellipses = circleDetector.getEllipses();
+
+            // Draw and print detected circles
+            for (size_t i = 0; i < circles.size(); ++i) {
+                const auto &circle = circles[i];
+                cv::circle(im, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
+
+                // Print circle parameters
+                std::cout << "Circle " << i + 1 << ": Center = (" << circle.center.x << ", " << circle.center.y
+                        << "), Radius = " << circle.r << std::endl;
+            }
+
+            // Draw and print detected ellipses
+            for (size_t i = 0; i < ellipses.size(); ++i) {
+                const auto &ellipse = ellipses[i];
+                cv::ellipse(im, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
+                            cv::Scalar(255, 0, 0), 2); // Blue ellipse
+
+                // Print ellipse parameters
+                cout << "Ellipse " << i + 1 << ": Center = (" << ellipse.center.x << ", " << ellipse.center.y
+                        << "), Axes = (" << ellipse.axes.width << ", " << ellipse.axes.height
+                        << "), Orientation = " << ellipse.theta << " radians" << endl;
+
+                double r = 24;
+
+                array<double, 3> sphere_center = paramEllipse2implSphere(ellipse.axes.width, ellipse.axes.height,
+                                                                         ellipse.center.x, ellipse.center.y, ellipse.theta, r);
+                cout << "Sphere center: [" << sphere_center[0] << ", "
+                        << sphere_center[1] << ", " << sphere_center[2] << "]" << endl;
+                // Convert the ellipse to implicit form
+                // ImplicitEllipse implicit = ellipseToImplicit(ellipse);
+
+                // std::cout << "Implicit Ellipse: " << implicit.A << ", " << implicit.B << ", " << implicit.C << ", " << implicit.D << ", " << implicit.E << ", " << implicit.F << std::endl;
+            }
+
 
             imshow("libcamera-demo", im);
             key = waitKey(1);
