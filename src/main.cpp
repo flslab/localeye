@@ -195,69 +195,57 @@ int main(int argc, char **argv) {
     //     return -1;
     // }
 
-    // Initialize libcamera
-    CameraManager manager;
-    if (manager.start() != 0) {
-        cerr << "Error: Camera manager could not start!" << endl;
-        return -1;
+    // Initialize camera manager
+    libcamera::CameraManager cameraManager;
+    if (cameraManager.start()) {
+        std::cerr << "Failed to start camera manager" << std::endl;
+        return 1;
     }
 
-    // Get the camera
-    shared_ptr<Camera> camera = manager.get("0");
-    if (!camera) {
-        cerr << "Error: No camera found!" << endl;
-        return -1;
+    // Get available cameras
+    auto cameras = cameraManager.cameras();
+    if (cameras.empty()) {
+        std::cerr << "No cameras available" << std::endl;
+        return 1;
     }
 
-    // Configure the camera
-    unique_ptr<CameraConfiguration> config = camera->generateConfiguration({ StreamRole::Viewfinder });
-    if (!config) {
-        cerr << "Error: Failed to generate camera configuration!" << endl;
-        return -1;
+    // Use the first available camera
+    auto camera = cameras.front();
+
+    // Configure camera
+    libcamera::CameraConfiguration config;
+    config.pixelFormat = libcamera::formats::YUV420;
+    config.size = libcamera::Size(1920, 1080);
+
+    if (camera->configure(config) != libcamera::CameraConfiguration::Status::Complete) {
+        std::cerr << "Failed to configure camera" << std::endl;
+        return 1;
     }
 
-    // Set the resolution
-    config->at(0).pixelFormat = formats::YUV420;
-    config->at(0).size.width = 1280;
-    config->at(0).size.height = 720;
-
-    // Apply the configuration and allocate buffers
-    if (camera->configure(config.get()) != 0) {
-        cerr << "Error: Failed to configure the camera!" << endl;
-        return -1;
+    // Start camera
+    if (camera->start()) {
+        std::cerr << "Failed to start camera" << std::endl;
+        return 1;
     }
-
-    // Allocate buffer for frames
-    FrameBufferAllocator allocator(camera);
-    for (const StreamConfiguration &cfg : *config) {
-        allocator.allocate(cfg.stream());
-    }
-
-    // Start the camera
-    if (camera->start() != 0) {
-        cerr << "Error: Failed to start the camera!" << endl;
-        return -1;
-    }
-
-    // Main loop to capture frames and detect LED flashes
-    int threshold_value = 200; // Adjust based on lighting
-    int frame_counter = 0;
 
     while (true) {
-        // Capture a frame
-        FrameBuffer *buffer = allocator.getFreeBuffer();
-        if (!buffer) {
-            cerr << "Error: No free buffer available!" << endl;
-            break;
+        // Capture image
+        auto request = camera->createRequest();
+        if (!request) {
+            std::cerr << "Failed to create request" << std::endl;
+            return 1;
         }
 
-        if (camera->queueBuffer(buffer) != 0) {
-            cerr << "Error: Failed to queue the buffer!" << endl;
-            break;
+        if (camera->queueRequest(request)) {
+            std::cerr << "Failed to queue request" << std::endl;
+            return 1;
         }
+
+        auto completedRequest = camera->completedRequests().front();
+        auto frame = completedRequest->buffers().begin()->second;
 
         // Get frame data and process it
-        Mat frame(Size(1280, 720), CV_8UC1, buffer->planes()[0].mem);
+        // Mat frame(Size(1280, 720), CV_8UC1, buffer->planes()[0].mem);
 
         // Initialize EDLib Circle and Ellipse detector
         EDCircles circleDetector(frame);
@@ -331,9 +319,9 @@ int main(int argc, char **argv) {
         frame_counter++;
     }
 
-    // Stop the camera and release resources
+    // Stop camera
     camera->stop();
-    manager.stop();
+    cameraManager.stop();
 
     // Load input image
     // cv::Mat image = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
