@@ -4,17 +4,21 @@
 #include <vector>
 #include <cmath>
 #include <array>
+
+#include <iomanip>
+#include <memory>
+#include <thread>
+
 #include <libcamera/libcamera.h>
-#include <libcamera/formats.h>
-#include <libcamera/controls.h>
-#include <libcamera/camera_manager.h>
+
+using namespace libcamera;
+using namespace std::chrono_literals;
 
 // #include <Eigen/Dense>  // Using Eigen library for matrix/vector operations
 
 
 using namespace cv;
 using namespace std;
-using namespace libcamera;
 
 
 struct ImplicitEllipse {
@@ -188,6 +192,20 @@ std::array<double, 3> paramEllipse2implSphere(double a, double b, double ex, dou
 //     return {S.x(), S.y(), S.z()};
 // }
 
+static std::shared_ptr<Camera> camera;
+
+static void requestComplete(Request *request)
+{
+    if (request->status() == Request::RequestCancelled)
+        return;
+
+    const std::map<const Stream *, FrameBuffer *> &buffers = request->buffers();
+
+    for (auto bufferPair : buffers) {
+        FrameBuffer *buffer = bufferPair.second;
+        const FrameMetadata &metadata = buffer->metadata();
+    }
+}
 
 int main(int argc, char **argv) {
     // if (argc != 2) {
@@ -195,133 +213,158 @@ int main(int argc, char **argv) {
     //     return -1;
     // }
 
-    // Initialize camera manager
-    libcamera::CameraManager cameraManager;
-    if (cameraManager.start()) {
-        std::cerr << "Failed to start camera manager" << std::endl;
-        return 1;
-    }
+    std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
+    cm->start();
 
-    // Get available cameras
-    auto cameras = cameraManager.cameras();
+    auto cameras = cm->cameras();
     if (cameras.empty()) {
-        std::cerr << "No cameras available" << std::endl;
-        return 1;
+        std::cout << "No cameras were identified on the system."
+                  << std::endl;
+        cm->stop();
+        return EXIT_FAILURE;
     }
 
-    // Use the first available camera
-    auto camera = cameras.front();
+    std::string cameraId = cameras[0]->id();
 
-    // Configure camera
-    libcamera::CameraConfiguration config;
-    config.pixelFormat = libcamera::formats::YUV420;
-    config.size = libcamera::Size(1920, 1080);
+    auto camera = cm->get(cameraId);
+    camera->acquire();
 
-    if (camera->configure(config) != libcamera::CameraConfiguration::Status::Complete) {
-        std::cerr << "Failed to configure camera" << std::endl;
-        return 1;
+    std::unique_ptr<CameraConfiguration> config = camera->generateConfiguration( { StreamRole::Viewfinder } );
+
+    StreamConfiguration &streamConfig = config->at(0);
+    std::cout << "Default viewfinder configuration is: " << streamConfig.toString() << std::endl;
+
+    streamConfig.size.width = 640;
+    streamConfig.size.height = 480;
+
+    config->validate();
+    std::cout << "Validated viewfinder configuration is: " << streamConfig.toString() << std::endl;
+    camera->configure(config.get());
+
+    FrameBufferAllocator *allocator = new FrameBufferAllocator(camera);
+
+    for (StreamConfiguration &cfg : *config) {
+        int ret = allocator->allocate(cfg.stream());
+        if (ret < 0) {
+            std::cerr << "Can't allocate buffers" << std::endl;
+            return -ENOMEM;
+        }
+
+        size_t allocated = allocator->buffers(cfg.stream()).size();
+        std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
     }
 
-    // Start camera
-    if (camera->start()) {
-        std::cerr << "Failed to start camera" << std::endl;
-        return 1;
+    Stream *stream = streamConfig.stream();
+    const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
+    std::vector<std::unique_ptr<Request>> requests;
+
+    for (unsigned int i = 0; i < buffers.size(); ++i) {
+        std::unique_ptr<Request> request = camera->createRequest();
+        if (!request)
+        {
+            std::cerr << "Can't create request" << std::endl;
+            return -ENOMEM;
+        }
+
+        const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
+        int ret = request->addBuffer(stream, buffer.get());
+        if (ret < 0)
+        {
+            std::cerr << "Can't set buffer for request"
+                  << std::endl;
+            return ret;
+        }
+
+        requests.push_back(std::move(request));
     }
+    camera->requestCompleted.connect(requestComplete);
 
-    while (true) {
-        // Capture image
-        auto request = camera->createRequest();
-        if (!request) {
-            std::cerr << "Failed to create request" << std::endl;
-            return 1;
-        }
-
-        if (camera->queueRequest(request)) {
-            std::cerr << "Failed to queue request" << std::endl;
-            return 1;
-        }
-
-        auto completedRequest = camera->completedRequests().front();
-        auto frame = completedRequest->buffers().begin()->second;
-
-        // Get frame data and process it
-        // Mat frame(Size(1280, 720), CV_8UC1, buffer->planes()[0].mem);
-
-        // Initialize EDLib Circle and Ellipse detector
-        EDCircles circleDetector(frame);
-
-        // Detect circles and ellipses
-        std::vector<mCircle> circles = circleDetector.getCircles();
-        std::vector<mEllipse> ellipses = circleDetector.getEllipses();
-
-        // Draw and print detected circles
-        for (size_t i = 0; i < circles.size(); ++i) {
-            const auto &circle = circles[i];
-            cv::circle(frame, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
-
-            // Print circle parameters
-            std::cout << "Circle " << i + 1 << ": Center = (" << circle.center.x << ", " << circle.center.y
-                    << "), Radius = " << circle.r << std::endl;
-        }
-
-        // Draw and print detected ellipses
-        for (size_t i = 0; i < ellipses.size(); ++i) {
-            const auto &ellipse = ellipses[i];
-            cv::ellipse(frame, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
-                        cv::Scalar(255, 0, 0), 2); // Blue ellipse
-
-            // Print ellipse parameters
-            cout << "Ellipse " << i + 1 << ": Center = (" << ellipse.center.x << ", " << ellipse.center.y
-                    << "), Axes = (" << ellipse.axes.width << ", " << ellipse.axes.height
-                    << "), Orientation = " << ellipse.theta << " radians" << endl;
-
-            double r = 24;
-
-            array<double, 3> sphere_center = paramEllipse2implSphere(ellipse.axes.width, ellipse.axes.height,
-                                                                     ellipse.center.x, ellipse.center.y, ellipse.theta, r);
-            cout << "Sphere center: [" << sphere_center[0] << ", "
-                    << sphere_center[1] << ", " << sphere_center[2] << "]" << endl;
-            // Convert the ellipse to implicit form
-            // ImplicitEllipse implicit = ellipseToImplicit(ellipse);
-
-            // std::cout << "Implicit Ellipse: " << implicit.A << ", " << implicit.B << ", " << implicit.C << ", " << implicit.D << ", " << implicit.E << ", " << implicit.F << std::endl;
-        }
-
-        // Display result
-        // cv::imshow("Detected Circles and Ellipses", displayImage);
-        // cv::waitKey(0); // Wait for a key press before closing
-
-        // Optionally save the output image
-        // cv::imwrite("output.png", displayImage);
-
-        // Define a Region of Interest (ROI) where the LED is located
-        Rect roi(100, 100, 100, 100); // Adjust as needed
-        Mat roi_gray = frame(roi);
-
-        // Calculate the average brightness in the ROI
-        Scalar mean_brightness = mean(roi_gray);
-        double brightness = mean_brightness[0];
-
-        // Detect whether the LED is ON or OFF based on brightness
-        if (brightness > threshold_value) {
-            cout << "Frame " << frame_counter << ": LED ON - binary 1" << endl;
-        } else {
-            cout << "Frame " << frame_counter << ": LED OFF - binary 0" << endl;
-        }
-
-        // Show the frame with the ROI for debugging (optional)
-        rectangle(frame, roi, Scalar(0, 255, 0), 2);
-        imshow("LED Detection", frame);
-
-        // Exit the loop if a key is pressed
-        if (waitKey(30) >= 0) break;
-
-        frame_counter++;
-    }
+    // while (true) {
+    //
+    //     // Get frame data and process it
+    //     // Mat frame(Size(1280, 720), CV_8UC1, buffer->planes()[0].mem);
+    //
+    //     // Initialize EDLib Circle and Ellipse detector
+    //     EDCircles circleDetector(frame);
+    //
+    //     // Detect circles and ellipses
+    //     std::vector<mCircle> circles = circleDetector.getCircles();
+    //     std::vector<mEllipse> ellipses = circleDetector.getEllipses();
+    //
+    //     // Draw and print detected circles
+    //     for (size_t i = 0; i < circles.size(); ++i) {
+    //         const auto &circle = circles[i];
+    //         cv::circle(frame, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
+    //
+    //         // Print circle parameters
+    //         std::cout << "Circle " << i + 1 << ": Center = (" << circle.center.x << ", " << circle.center.y
+    //                 << "), Radius = " << circle.r << std::endl;
+    //     }
+    //
+    //     // Draw and print detected ellipses
+    //     for (size_t i = 0; i < ellipses.size(); ++i) {
+    //         const auto &ellipse = ellipses[i];
+    //         cv::ellipse(frame, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
+    //                     cv::Scalar(255, 0, 0), 2); // Blue ellipse
+    //
+    //         // Print ellipse parameters
+    //         cout << "Ellipse " << i + 1 << ": Center = (" << ellipse.center.x << ", " << ellipse.center.y
+    //                 << "), Axes = (" << ellipse.axes.width << ", " << ellipse.axes.height
+    //                 << "), Orientation = " << ellipse.theta << " radians" << endl;
+    //
+    //         double r = 24;
+    //
+    //         array<double, 3> sphere_center = paramEllipse2implSphere(ellipse.axes.width, ellipse.axes.height,
+    //                                                                  ellipse.center.x, ellipse.center.y, ellipse.theta, r);
+    //         cout << "Sphere center: [" << sphere_center[0] << ", "
+    //                 << sphere_center[1] << ", " << sphere_center[2] << "]" << endl;
+    //         // Convert the ellipse to implicit form
+    //         // ImplicitEllipse implicit = ellipseToImplicit(ellipse);
+    //
+    //         // std::cout << "Implicit Ellipse: " << implicit.A << ", " << implicit.B << ", " << implicit.C << ", " << implicit.D << ", " << implicit.E << ", " << implicit.F << std::endl;
+    //     }
+    //
+    //     // Display result
+    //     // cv::imshow("Detected Circles and Ellipses", displayImage);
+    //     // cv::waitKey(0); // Wait for a key press before closing
+    //
+    //     // Optionally save the output image
+    //     // cv::imwrite("output.png", displayImage);
+    //
+    //     // Define a Region of Interest (ROI) where the LED is located
+    //     Rect roi(100, 100, 100, 100); // Adjust as needed
+    //     Mat roi_gray = frame(roi);
+    //
+    //     // Calculate the average brightness in the ROI
+    //     Scalar mean_brightness = mean(roi_gray);
+    //     double brightness = mean_brightness[0];
+    //
+    //     // Detect whether the LED is ON or OFF based on brightness
+    //     if (brightness > threshold_value) {
+    //         cout << "Frame " << frame_counter << ": LED ON - binary 1" << endl;
+    //     } else {
+    //         cout << "Frame " << frame_counter << ": LED OFF - binary 0" << endl;
+    //     }
+    //
+    //     // Show the frame with the ROI for debugging (optional)
+    //     rectangle(frame, roi, Scalar(0, 255, 0), 2);
+    //     imshow("LED Detection", frame);
+    //
+    //     // Exit the loop if a key is pressed
+    //     if (waitKey(30) >= 0) break;
+    //
+    //     frame_counter++;
+    // }
 
     // Stop camera
     camera->stop();
-    cameraManager.stop();
+    allocator->free(stream);
+    delete allocator;
+    camera->release();
+    camera.reset();
+    cm->stop();
+
+    return 0;
 
     // Load input image
     // cv::Mat image = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
@@ -336,5 +379,4 @@ int main(int argc, char **argv) {
 
 
 
-    return 0;
 }
