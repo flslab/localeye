@@ -5,14 +5,19 @@
 #include <cmath>
 #include <array>
 
-#include <iomanip>
-#include <memory>
-#include <thread>
+// #include <iomanip>
+// #include <memory>
+// #include <thread>
 
-#include <libcamera/libcamera.h>
+#include <opencv2/imgproc.hpp>
+#include <opencv2/core.hpp>
+#include <opencv2/imgcodecs.hpp>
+#include <opencv2/highgui.hpp>
 
-using namespace libcamera;
-using namespace std::chrono_literals;
+#include "LibCamera.h"
+
+// using namespace libcamera;
+// using namespace std::chrono_literals;
 
 // #include <Eigen/Dense>  // Using Eigen library for matrix/vector operations
 
@@ -213,71 +218,150 @@ int main(int argc, char **argv) {
     //     return -1;
     // }
 
-    std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
-    cm->start();
+    time_t start_time = time(0);
+    int frame_count = 0;
+    float lens_position = 100;
+    float focus_step = 50;
+    LibCamera cam;
+    uint32_t width = 1920;
+    uint32_t height = 1080;
+    uint32_t stride;
+    char key;
+    int window_width = 1920;
+    int window_height = 1080;
 
-    auto cameras = cm->cameras();
-    if (cameras.empty()) {
-        std::cout << "No cameras were identified on the system."
-                  << std::endl;
-        cm->stop();
-        return EXIT_FAILURE;
+    if (width > window_width)
+    {
+        cv::namedWindow("libcamera-demo", cv::WINDOW_NORMAL);
+        cv::resizeWindow("libcamera-demo", window_width, window_height);
     }
 
-    std::string cameraId = cameras[0]->id();
+    int ret = cam.initCamera();
+    cam.configureStill(width, height, formats::RGB888, 1, 0);
+    ControlList controls_;
+    int64_t frame_time = 1000000 / 10;
+    // Set frame rate
+	controls_.set(controls::FrameDurationLimits, libcamera::Span<const int64_t, 2>({ frame_time, frame_time }));
+    // Adjust the brightness of the output images, in the range -1.0 to 1.0
+    controls_.set(controls::Brightness, 0.5);
+    // Adjust the contrast of the output image, where 1.0 = normal contrast
+    controls_.set(controls::Contrast, 1.5);
+    // Set the exposure time
+    controls_.set(controls::ExposureTime, 20000);
+    cam.set(controls_);
+    if (!ret) {
+        bool flag;
+        LibcameraOutData frameData;
+        cam.startCamera();
+        cam.VideoStream(&width, &height, &stride);
+        while (true) {
+            flag = cam.readFrame(&frameData);
+            if (!flag)
+                continue;
+            Mat im(height, width, CV_8UC3, frameData.imageData, stride);
 
-    auto camera = cm->get(cameraId);
-    camera->acquire();
+            imshow("libcamera-demo", im);
+            key = waitKey(1);
+            if (key == 'q') {
+                break;
+            } else if (key == 'f') {
+                ControlList controls;
+                controls.set(controls::AfMode, controls::AfModeAuto);
+                controls.set(controls::AfTrigger, 0);
+                cam.set(controls);
+            } else if (key == 'a' || key == 'A') {
+                lens_position += focus_step;
+            } else if (key == 'd' || key == 'D') {
+                lens_position -= focus_step;
+            }
 
-    std::unique_ptr<CameraConfiguration> config = camera->generateConfiguration( { StreamRole::Viewfinder } );
+            // To use the manual focus function, libcamera-dev needs to be updated to version 0.0.10 and above.
+            if (key == 'a' || key == 'A' || key == 'd' || key == 'D') {
+                ControlList controls;
+                controls.set(controls::AfMode, controls::AfModeManual);
+				controls.set(controls::LensPosition, lens_position);
+                cam.set(controls);
+            }
 
-    StreamConfiguration &streamConfig = config->at(0);
-    std::cout << "Default viewfinder configuration is: " << streamConfig.toString() << std::endl;
-
-    streamConfig.size.width = 640;
-    streamConfig.size.height = 480;
-
-    config->validate();
-    std::cout << "Validated viewfinder configuration is: " << streamConfig.toString() << std::endl;
-    camera->configure(config.get());
-
-    FrameBufferAllocator *allocator = new FrameBufferAllocator(camera);
-
-    for (StreamConfiguration &cfg : *config) {
-        int ret = allocator->allocate(cfg.stream());
-        if (ret < 0) {
-            std::cerr << "Can't allocate buffers" << std::endl;
-            return -ENOMEM;
+            frame_count++;
+            if ((time(0) - start_time) >= 1){
+                printf("fps: %d\n", frame_count);
+                frame_count = 0;
+                start_time = time(0);
+            }
+            cam.returnFrameBuffer(frameData);
         }
-
-        size_t allocated = allocator->buffers(cfg.stream()).size();
-        std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
+        destroyAllWindows();
+        cam.stopCamera();
     }
+    cam.closeCamera();
+    return 0;
 
-    Stream *stream = streamConfig.stream();
-    const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
-    std::vector<std::unique_ptr<Request>> requests;
-
-    for (unsigned int i = 0; i < buffers.size(); ++i) {
-        std::unique_ptr<Request> request = camera->createRequest();
-        if (!request)
-        {
-            std::cerr << "Can't create request" << std::endl;
-            return -ENOMEM;
-        }
-
-        const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
-        int ret = request->addBuffer(stream, buffer.get());
-        if (ret < 0)
-        {
-            std::cerr << "Can't set buffer for request"
-                  << std::endl;
-            return ret;
-        }
-
-        requests.push_back(std::move(request));
-    }
-    camera->requestCompleted.connect(requestComplete);
+    // std::unique_ptr<CameraManager> cm = std::make_unique<CameraManager>();
+    // cm->start();
+    //
+    // auto cameras = cm->cameras();
+    // if (cameras.empty()) {
+    //     std::cout << "No cameras were identified on the system."
+    //               << std::endl;
+    //     cm->stop();
+    //     return EXIT_FAILURE;
+    // }
+    //
+    // std::string cameraId = cameras[0]->id();
+    //
+    // auto camera = cm->get(cameraId);
+    // camera->acquire();
+    //
+    // std::unique_ptr<CameraConfiguration> config = camera->generateConfiguration( { StreamRole::Viewfinder } );
+    //
+    // StreamConfiguration &streamConfig = config->at(0);
+    // std::cout << "Default viewfinder configuration is: " << streamConfig.toString() << std::endl;
+    //
+    // streamConfig.size.width = 640;
+    // streamConfig.size.height = 480;
+    //
+    // config->validate();
+    // std::cout << "Validated viewfinder configuration is: " << streamConfig.toString() << std::endl;
+    // camera->configure(config.get());
+    //
+    // FrameBufferAllocator *allocator = new FrameBufferAllocator(camera);
+    //
+    // for (StreamConfiguration &cfg : *config) {
+    //     int ret = allocator->allocate(cfg.stream());
+    //     if (ret < 0) {
+    //         std::cerr << "Can't allocate buffers" << std::endl;
+    //         return -ENOMEM;
+    //     }
+    //
+    //     size_t allocated = allocator->buffers(cfg.stream()).size();
+    //     std::cout << "Allocated " << allocated << " buffers for stream" << std::endl;
+    // }
+    //
+    // Stream *stream = streamConfig.stream();
+    // const std::vector<std::unique_ptr<FrameBuffer>> &buffers = allocator->buffers(stream);
+    // std::vector<std::unique_ptr<Request>> requests;
+    //
+    // for (unsigned int i = 0; i < buffers.size(); ++i) {
+    //     std::unique_ptr<Request> request = camera->createRequest();
+    //     if (!request)
+    //     {
+    //         std::cerr << "Can't create request" << std::endl;
+    //         return -ENOMEM;
+    //     }
+    //
+    //     const std::unique_ptr<FrameBuffer> &buffer = buffers[i];
+    //     int ret = request->addBuffer(stream, buffer.get());
+    //     if (ret < 0)
+    //     {
+    //         std::cerr << "Can't set buffer for request"
+    //               << std::endl;
+    //         return ret;
+    //     }
+    //
+    //     requests.push_back(std::move(request));
+    // }
+    // camera->requestCompleted.connect(requestComplete);
 
     // while (true) {
     //
@@ -356,13 +440,13 @@ int main(int argc, char **argv) {
     //     frame_counter++;
     // }
 
-    // Stop camera
-    camera->stop();
-    allocator->free(stream);
-    delete allocator;
-    camera->release();
-    camera.reset();
-    cm->stop();
+    // // Stop camera
+    // camera->stop();
+    // allocator->free(stream);
+    // delete allocator;
+    // camera->release();
+    // camera.reset();
+    // cm->stop();
 
     return 0;
 
