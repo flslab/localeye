@@ -270,7 +270,7 @@ int main(int argc, char **argv) {
             if (!flag)
                 continue;
             // CV_8UC3 for color CV_8UC1 for grayscale image
-            Mat im(height, width, CV_8UC1, frameData.imageData, stride);
+            Mat im(height, width, CV_8UC3, frameData.imageData, stride);
             // Mat frame(height, width, CV_8UC1, frameData.imageData, stride);
 
             // Detect ellipses
