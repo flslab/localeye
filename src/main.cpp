@@ -234,12 +234,12 @@ int main(int argc, char **argv) {
     float lens_position = 100;
     float focus_step = 50;
     LibCamera cam;
-    uint32_t width = 1280;
-    uint32_t height = 720;
+    uint32_t width = 640;
+    uint32_t height = 480;
     uint32_t stride;
     char key;
-    int window_width = 1280;
-    int window_height = 720;
+    int window_width = 640;
+    int window_height = 480;
 
     if (width > window_width)
     {
@@ -271,11 +271,14 @@ int main(int argc, char **argv) {
                 continue;
             // CV_8UC3 for color CV_8UC1 for grayscale image
             Mat im(height, width, CV_8UC3, frameData.imageData, stride);
+
+            cv::Mat frame;
+            cv::cvtColor(im, frame, cv::COLOR_BGR2GRAY);
             // Mat frame(height, width, CV_8UC1, frameData.imageData, stride);
 
             // Detect ellipses
             // Initialize EDLib Circle and Ellipse detector
-            EDCircles circleDetector(im);
+            EDCircles circleDetector(frame);
 
             // Detect circles and ellipses
             std::vector<mCircle> circles = circleDetector.getCircles();
