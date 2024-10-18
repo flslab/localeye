@@ -217,6 +217,17 @@ int main(int argc, char **argv) {
     //     std::cerr << "Usage: " << argv[0] << " <input_image>" << std::endl;
     //     return -1;
     // }
+    // Load input image
+    // cv::Mat image = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
+    // if (image.empty()) {
+    //     std::cerr << "Could not load image: " << argv[1] << std::endl;
+    //     return -1;
+    // }
+    //
+    // // Convert grayscale to BGR for displaying color circles and ellipses
+    // cv::Mat displayImage;
+    // cv::cvtColor(image, displayImage, cv::COLOR_GRAY2BGR);
+
 
     time_t start_time = time(0);
     int frame_count = 0;
@@ -258,15 +269,13 @@ int main(int argc, char **argv) {
             flag = cam.readFrame(&frameData);
             if (!flag)
                 continue;
-            // CV_8UC3 for color CV_8UC1 for grascale image
-            Mat im(height, width, CV_8UC3, frameData.imageData, stride);
-            Mat frame(height, width, CV_8UC1, frameData.imageData, stride);
-
-            // cv::circle(im, cv::Point(200, 200), static_cast<int>(40), cv::Scalar(0, 255, 0), 2); // Green circle
+            // CV_8UC3 for color CV_8UC1 for grayscale image
+            Mat im(height, width, CV_8UC1, frameData.imageData, stride);
+            // Mat frame(height, width, CV_8UC1, frameData.imageData, stride);
 
             // Detect ellipses
             // Initialize EDLib Circle and Ellipse detector
-            EDCircles circleDetector(frame);
+            EDCircles circleDetector(im);
 
             // Detect circles and ellipses
             std::vector<mCircle> circles = circleDetector.getCircles();
