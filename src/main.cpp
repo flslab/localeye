@@ -287,7 +287,7 @@ int main(int argc, char **argv) {
             // Draw and print detected circles
             for (size_t i = 0; i < circles.size(); ++i) {
                 const auto &circle = circles[i];
-                cv::circle(im, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
+                cv::circle(frame, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
 
                 // Print circle parameters
                 std::cout << "Circle " << i + 1 << ": Center = (" << circle.center.x << ", " << circle.center.y
@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
             // Draw and print detected ellipses
             for (size_t i = 0; i < ellipses.size(); ++i) {
                 const auto &ellipse = ellipses[i];
-                cv::ellipse(im, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
+                cv::ellipse(frame, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
                             cv::Scalar(255, 0, 0), 2); // Blue ellipse
 
                 // Print ellipse parameters
@@ -318,7 +318,7 @@ int main(int argc, char **argv) {
             }
 
 
-            imshow("libcamera-demo", im);
+            imshow("libcamera-demo", frame);
             key = waitKey(1);
             if (key == 'q') {
                 break;
