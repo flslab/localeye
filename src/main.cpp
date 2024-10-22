@@ -218,7 +218,7 @@ int main(int argc, char **argv) {
     //     return -1;
     // }
     // Load input image
-    // cv::Mat image = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
+    cv::Mat image = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
     // if (image.empty()) {
     //     std::cerr << "Could not load image: " << argv[1] << std::endl;
     //     return -1;
@@ -278,7 +278,7 @@ int main(int argc, char **argv) {
 
             // Detect ellipses
             // Initialize EDLib Circle and Ellipse detector
-            EDCircles circleDetector(frame);
+            EDCircles circleDetector(image);
 
             // Detect circles and ellipses
             std::vector<mCircle> circles = circleDetector.getCircles();
@@ -287,7 +287,7 @@ int main(int argc, char **argv) {
             // Draw and print detected circles
             for (size_t i = 0; i < circles.size(); ++i) {
                 const auto &circle = circles[i];
-                cv::circle(im, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
+                cv::circle(image, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
 
                 // Print circle parameters
                 std::cout << "Circle " << i + 1 << ": Center = (" << circle.center.x << ", " << circle.center.y
@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
             // Draw and print detected ellipses
             for (size_t i = 0; i < ellipses.size(); ++i) {
                 const auto &ellipse = ellipses[i];
-                cv::ellipse(im, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
+                cv::ellipse(image, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
                             cv::Scalar(255, 0, 0), 2); // Blue ellipse
 
                 // Print ellipse parameters
@@ -318,7 +318,7 @@ int main(int argc, char **argv) {
             }
 
 
-            imshow("libcamera-demo", im);
+            imshow("libcamera-demo", image);
             key = waitKey(1);
             if (key == 'q') {
                 break;
