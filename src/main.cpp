@@ -218,7 +218,7 @@ int main(int argc, char **argv) {
     //     return -1;
     // }
     // Load input image
-    cv::Mat image = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
+    // cv::Mat image = cv::imread(argv[1], cv::IMREAD_GRAYSCALE);
     // if (image.empty()) {
     //     std::cerr << "Could not load image: " << argv[1] << std::endl;
     //     return -1;
@@ -270,15 +270,15 @@ int main(int argc, char **argv) {
             if (!flag)
                 continue;
             // CV_8UC3 for color CV_8UC1 for grayscale image
-            Mat im(height, width, CV_8UC3, frameData.imageData, stride);
+            Mat im(height, width, CV_8UC1, frameData.imageData, stride);
 
-            cv::Mat frame;
-            cv::cvtColor(im, frame, cv::COLOR_BGR2GRAY);
+            // cv::Mat frame;
+            // cv::cvtColor(im, frame, cv::COLOR_BGR2GRAY);
             // Mat frame(height, width, CV_8UC1, frameData.imageData, stride);
 
             // Detect ellipses
             // Initialize EDLib Circle and Ellipse detector
-            EDCircles circleDetector(image);
+            EDCircles circleDetector(im);
 
             // Detect circles and ellipses
             std::vector<mCircle> circles = circleDetector.getCircles();
@@ -287,7 +287,7 @@ int main(int argc, char **argv) {
             // Draw and print detected circles
             for (size_t i = 0; i < circles.size(); ++i) {
                 const auto &circle = circles[i];
-                cv::circle(image, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
+                cv::circle(im, circle.center, static_cast<int>(circle.r), cv::Scalar(0, 255, 0), 2); // Green circle
 
                 // Print circle parameters
                 std::cout << "Circle " << i + 1 << ": Center = (" << circle.center.x << ", " << circle.center.y
@@ -297,7 +297,7 @@ int main(int argc, char **argv) {
             // Draw and print detected ellipses
             for (size_t i = 0; i < ellipses.size(); ++i) {
                 const auto &ellipse = ellipses[i];
-                cv::ellipse(image, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
+                cv::ellipse(im, ellipse.center, ellipse.axes, ellipse.theta * 180.0 / CV_PI, 0, 360,
                             cv::Scalar(255, 0, 0), 2); // Blue ellipse
 
                 // Print ellipse parameters
@@ -318,7 +318,7 @@ int main(int argc, char **argv) {
             }
 
 
-            imshow("libcamera-demo", image);
+            imshow("libcamera-demo", im);
             key = waitKey(1);
             if (key == 'q') {
                 break;
